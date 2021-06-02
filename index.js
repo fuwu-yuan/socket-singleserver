@@ -54,22 +54,22 @@ app.post('/api/room', (req, res) => {
     const game = req.body.game || null;
     const version = req.body.version || null;
     let name = req.body.name || null;
+    const limit = !isNaN(parseInt(req.body.limit)) ? parseInt(req.body.limit) : 0;
 
     if (game && version && name) {
-        let wsObj = {uid: null, game: game, version: version, name: name, open: "true", data: {}};
-        console.log("[wss] Creating new WebSocketServer ", wsObj);
+        let wsServer = {uid: null, game: game, version: version, name: name, open: true, limit: limit, players: [], data: {}};
+        console.log("[wss] Creating new WebSocketServer ", wsServer);
         if (!findOneServerByCriteria({game: game, version: version, name: name})) {
             const uid = uuidv1();
-            wsObj.uid = uid;
+            wsServer.uid = uid;
             const wss = new WebSocket.Server({ server: server, path: "/"+uid });
             console.log("[wss] New WebSocketServer created: ", wss.options.path);
-            initWebSocketServer(wss);
-
-            wsObj.wss = wss;
-            wsServers.push(wsObj);
-            return res.status(200).json({status: "success", data: getPublicServerData(wsObj)});
+            wsServer.wss = wss;
+            initWebSocketServer(wsServer);
+            wsServers.push(wsServer);
+            return res.status(200).json({status: "success", data: getPublicServerData(wsServer)});
         }else {
-            console.log("[wss] WebSocketServer already exists ", wsObj);
+            console.log("[wss] WebSocketServer already exists ", wsServer);
             return res.status(200).json({status: "error", code: "name_already_exists", message: `A server with this name for the game ${name} (${version}) already exists`});
         }
     }else {
@@ -95,19 +95,13 @@ app.post('/api/room/data/:uid', (req, res) => {
 
 app.post('/api/room/close/:uid', (req, res) => {
     const uid = req.params.uid;
-    let close = req.body.close || null;
+    let close = req.body.close === "true";
 
-    if (close !== null) {
-        console.log(!close ? "Opening" : "Closing" + " serveur " + uid);
-        let index = findOneServerByCriteria({"uid": uid}, true);
-        if (index >= -1) {
-            wsServers[index].open = !close ? "true" : "false";
-            return res.status(200).json({"status": "success", "data": getPublicServerData(wsServers[index])});
-        }else {
-            return res.status(200).json({"status": "error", code:"not_found", "message": "No serveur found with uid " + uid});
-        }
+    let data = closeWebsocketServer(uid, close);
+    if (data !== false) {
+        return res.status(200).json({"status": "success", "data": data});
     }else {
-        return res.status(200).json({status: "error", code: "invalid_data", message: "Invalid data in body, you must post JSON data"});
+        return res.status(200).json({"status": "error", code:"not_found", "message": "No serveur found with uid " + uid});
     }
 });
 
@@ -120,38 +114,84 @@ app.get('/api/room', (req, res) => {
     return res.status(200).json({status: "success", servers: servers});
 });
 
-function getPublicServerData(server) {
-    delete server.wss;
-    return server;
+function closeWebsocketServer(uid, close) {
+    console.log(!close ? "Opening" : "Closing" + " serveur " + uid);
+    let index = findOneServerByCriteria({"uid": uid}, true);
+    if (index > -1) {
+        wsServers[index].open = !close;
+        return getPublicServerData(wsServers[index]);
+    }else {
+        return false;
+    }
 }
 
-function initWebSocketServer(wss) {
-    wss.on('connection', ws => {
-        ws.id = wss.getUniqueID();
-        console.log(`[wss] New connexion on ${wss.options.path} (id: ${ws.id})`);
-        ws.send(JSON.stringify({status:"success", code:"connected"}));
-        wss.broadcast(ws, {code:"player_join"});
+function getPlayers(serverUID) {
+    let server = findOneServerByCriteria({"uid": serverUID});
+    let players = [];
+    if (server) {
+        for (let player of server.wss.clients) {
+            players.push({uid: player.uid});
+        }
+    }
+    return players;
+}
+
+function getPublicServerData(server) {
+    let clearedServer = Object.assign({}, server);
+    delete clearedServer.wss;
+    return clearedServer;
+}
+
+function initWebSocketServer(wsServer) {
+    wsServer.wss.on('connection', ws => {
+        /* If trying to connect to a closed server, disconnecting client */
+        if (wsServer.open === false) {
+            ws.send(JSON.stringify({status:"error", code:"room_full", data: {room: getPublicServerData(wsServer)}}))
+            ws.close();
+            return;
+        }
+
+        /* Verify Server limit */
+        if (wsServer.limit > 0) {
+            /* If limit reached, we close server */
+            if (wsServer.open && wsServer.wss.clients.size === wsServer.limit) {
+                closeWebsocketServer(wsServer.uid, true);
+            }
+        }
+
+        ws.uid = wsServer.wss.getUniqueID();
+        console.log(`[wss] New connexion on ${wsServer.wss.options.path} (id: ${ws.uid})`);
+        wsServer.players = getPlayers(wsServer.uid);
+        ws.send(JSON.stringify({status:"success", code:"connected", data: {players: wsServer.players}}));
+        wsServer.wss.broadcast(ws, {code:"player_join"});
         ws.on('message', message => {
-            console.log("[wss] New message on " + wss.options.path + ": ", message);
+            console.log("[wss] New message on " + wsServer.wss.options.path + ": ", message);
             try{
                 var data = JSON.parse(message);
-                let cnt = wss.broadcast(ws, data);
+                let cnt = wsServer.wss.broadcast(ws, data);
                 ws.send(JSON.stringify({status:"success", code: "msg_sent", data:{msg: data.msg, cnt: cnt}}));
             }catch(e) {
             }
         })
         ws.on('error',e=>console.log(e))
         ws.on('close',(e) => {
-            console.log('Connexion closed on ' + wss.options.path);
-            if (wss.clients.size === 0) {
-                console.log(`WebSocketServer ${wss.options.path} has no client anymore. Closing it!`);
-                wss.close();
+            console.log('Connexion closed on ' + wsServer.wss.options.path);
+            /* If limit not reached and server was closed, we open it again */
+            if (!wsServer.open && wsServer.wss.clients.size < wsServer.limit) {
+                closeWebsocketServer(wsServer.uid, false);
+            }
+            wsServer.players = getPlayers(wsServer.uid);
+            wsServer.wss.broadcast(ws, {code: "player_leave"});
+            if (wsServer.wss.clients.size === 0) {
+                console.log(`WebSocketServer ${wsServer.wss.options.path} has no client anymore. Closing it!`);
+                wsServer.wss.close();
             }
         });
     })
-    .on("close", () => {
-        console.log("WebSocketServer " + wss.options.path + " closed.");
-    });
+        .on("close", () => {
+            console.log("WebSocketServer " + wsServer.wss.options.path + " closed.");
+            wsServers.splice(wsServers.indexOf(wsServer), 1);
+        });
 }
 
 function findOneServerByCriteria(criteria, findIndex = false) {
@@ -172,7 +212,7 @@ function findServersByCriteria(criteria) {
     return wsServers.filter((wsServer) => {
         let valid = true;
         for (const [key, value] of Object.entries(criteria)) {
-            valid = valid && (wsServer[key] === value);
+            valid = valid && (wsServer[key].toString() === value);
         }
         return valid;
     });

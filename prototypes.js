@@ -17,7 +17,8 @@ var e = function() {
     WebSocket.Server.prototype.broadcast = function(sender, data){
         let cnt = 0;
         this.clients.forEach(client => {
-            if (sender.id !== client.id) {
+            if (sender.uid !== client.uid) {
+                data.sender = sender.uid;
                 client.send(JSON.stringify(data));
                 cnt++;
             }

@@ -57,7 +57,7 @@ app.post('/api/room', (req, res) => {
     const limit = !isNaN(parseInt(req.body.limit)) ? parseInt(req.body.limit) : 0;
 
     if (game && version && name) {
-        let wsServer = {uid: null, game: game, version: version, name: name, open: true, limit: limit, players: [], data: {}};
+        let wsServer = {uid: null, game: game, version: version, name: name, open: true, limit: limit, clients: [], data: {}};
         console.log("[wss] Creating new WebSocketServer ", wsServer);
         if (!findOneServerByCriteria({game: game, version: version, name: name})) {
             const uid = uuidv1();
@@ -80,13 +80,23 @@ app.post('/api/room', (req, res) => {
 
 app.post('/api/room/data/:uid', (req, res) => {
     const uid = req.params.uid;
-    let data = req.body || null;
+    let body = req.body || null;
 
-    if (util.isJson(data)) {
-        data = JSON.parse(data);
-        console.log("Adding data to " + uid + " : ", data);
+    console.log(body);
+
+    if (body && typeof body === "object") {
+        let merge = body.merge;
+        let data = body.data;
         let index = findOneServerByCriteria({"uid": uid}, true);
-        wsServers[index].data.deepmerge(data);
+        if (merge) {
+            wsServers[index].data = wsServers[index].data.deepmerge(data);
+        }else {
+            let keys = Object.keys(data);
+            for (const key of keys) {
+                wsServers[index].data[key] = data[key];
+            }
+        }
+        console.log("Data merges to " + uid + " : ", wsServers[index].data);
         return res.status(200).json({status: "success", data: getPublicServerData(wsServers[index])});
     }else {
         return res.status(200).json({status: "error", code: "invalid_data", message: "Invalid data in body, you must post JSON data"});
@@ -101,7 +111,7 @@ app.post('/api/room/close/:uid', (req, res) => {
     if (data !== false) {
         return res.status(200).json({"status": "success", "data": data});
     }else {
-        return res.status(200).json({"status": "error", code:"not_found", "message": "No serveur found with uid " + uid});
+        return res.status(200).json({"status": "error", code:"not_found", message: "No serveur found with uid " + uid});
     }
 });
 
@@ -125,15 +135,15 @@ function closeWebsocketServer(uid, close) {
     }
 }
 
-function getPlayers(serverUID) {
+function getClientsUID(serverUID) {
     let server = findOneServerByCriteria({"uid": serverUID});
-    let players = [];
+    let clientsUID = [];
     if (server) {
-        for (let player of server.wss.clients) {
-            players.push({uid: player.uid});
+        for (let client of server.wss.clients) {
+            clientsUID.push({uid: client.uid});
         }
     }
-    return players;
+    return clientsUID;
 }
 
 function getPublicServerData(server) {
@@ -161,15 +171,15 @@ function initWebSocketServer(wsServer) {
 
         ws.uid = wsServer.wss.getUniqueID();
         console.log(`[wss] New connexion on ${wsServer.wss.options.path} (id: ${ws.uid})`);
-        wsServer.players = getPlayers(wsServer.uid);
-        ws.send(JSON.stringify({status:"success", code:"connected", data: {players: wsServer.players}}));
+        wsServer.clients = getClientsUID(wsServer.uid);
+        ws.send(JSON.stringify({status:"success", code:"connected", data: {room: getPublicServerData(wsServer), uid: ws.uid}}));
         wsServer.wss.broadcast(ws, {code:"player_join"});
         ws.on('message', message => {
             console.log("[wss] New message on " + wsServer.wss.options.path + ": ", message);
             try{
                 var data = JSON.parse(message);
-                let cnt = wsServer.wss.broadcast(ws, data);
-                ws.send(JSON.stringify({status:"success", code: "msg_sent", data:{msg: data.msg, cnt: cnt}}));
+                let cnt = wsServer.wss.broadcast(ws, {code: "broadcast", data: data});
+                ws.send(JSON.stringify({code: "msg_sent", data:{msg: data, cnt: cnt}}));
             }catch(e) {
             }
         })
@@ -180,7 +190,7 @@ function initWebSocketServer(wsServer) {
             if (!wsServer.open && wsServer.wss.clients.size < wsServer.limit) {
                 closeWebsocketServer(wsServer.uid, false);
             }
-            wsServer.players = getPlayers(wsServer.uid);
+            wsServer.clients = getClientsUID(wsServer.uid);
             wsServer.wss.broadcast(ws, {code: "player_leave"});
             if (wsServer.wss.clients.size === 0) {
                 console.log(`WebSocketServer ${wsServer.wss.options.path} has no client anymore. Closing it!`);

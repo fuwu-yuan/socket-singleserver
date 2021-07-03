@@ -10,6 +10,7 @@ const ngrok = require('ngrok');
 const express = require('express');
 const cors = require('cors');
 const util = require('./util');
+const url = require('url');
 require("./prototypes")();
 
 const privateKey = fs.readFileSync('./certs/privkey1.pem', 'utf8');
@@ -17,7 +18,6 @@ const certificate = fs.readFileSync('./certs/cert1.pem', 'utf8');
 const ca = fs.readFileSync('./certs/chain1.pem', 'utf8');
 
 const {
-    v1: uuidv1,
     v4: uuidv4,
 } = require('uuid');
 
@@ -49,20 +49,36 @@ if (process.env.SSL === 'true') {
     server = http.createServer(app);
 }
 
+server.on('upgrade', function upgrade(request, socket, head) {
+    const pathname = url.parse(request.url).pathname;
+
+    let uid = pathname.substr(1);
+    let wsServer = findOneServerByCriteria({"uid": uid});
+    if (wsServer) {
+        wsServer.wss.handleUpgrade(request, socket, head, function done(ws) {
+            wsServer.wss.emit('connection', ws, request);
+        });
+    } else {
+        socket.destroy();
+    }
+});
+
+
 
 app.post('/api/room', (req, res) => {
     const game = req.body.game || null;
     const version = req.body.version || null;
     let name = req.body.name || null;
+    let data = req.body.data || {};
     const limit = !isNaN(parseInt(req.body.limit)) ? parseInt(req.body.limit) : 0;
 
     if (game && version && name) {
-        let wsServer = {uid: null, game: game, version: version, name: name, open: true, limit: limit, clients: [], data: {}};
+        let wsServer = {uid: null, game: game, version: version, name: name, open: true, limit: limit, clients: [], data: data};
         console.log("[wss] Creating new WebSocketServer ", wsServer);
         if (!findOneServerByCriteria({game: game, version: version, name: name})) {
-            const uid = uuidv1();
+            const uid = uuidv4();
             wsServer.uid = uid;
-            const wss = new WebSocket.Server({ server: server, path: "/"+uid });
+            const wss = new WebSocket.Server({ noServer: true, path: "/"+uid });
             console.log("[wss] New WebSocketServer created: ", wss.options.path);
             wsServer.wss = wss;
             initWebSocketServer(wsServer);
@@ -96,11 +112,18 @@ app.post('/api/room/data/:uid', (req, res) => {
                 wsServers[index].data[key] = data[key];
             }
         }
-        console.log("Data merges to " + uid + " : ", wsServers[index].data);
         return res.status(200).json({status: "success", data: getPublicServerData(wsServers[index])});
     }else {
         return res.status(200).json({status: "error", code: "invalid_data", message: "Invalid data in body, you must post JSON data"});
     }
+});
+
+app.get('/api/room/data/:uid', (req, res) => {
+    const uid = req.params.uid;
+
+    let index = findOneServerByCriteria({"uid": uid}, true);
+    let data = wsServers[index].data;
+    return res.status(200).json({status: "success", data: data});
 });
 
 app.post('/api/room/close/:uid', (req, res) => {
@@ -125,7 +148,7 @@ app.get('/api/room', (req, res) => {
 });
 
 function closeWebsocketServer(uid, close) {
-    console.log(!close ? "Opening" : "Closing" + " serveur " + uid);
+    console.log((!close ? "Opening" : "Closing") + " serveur " + uid);
     let index = findOneServerByCriteria({"uid": uid}, true);
     if (index > -1) {
         wsServers[index].open = !close;
@@ -172,6 +195,7 @@ function initWebSocketServer(wsServer) {
         ws.uid = wsServer.wss.getUniqueID();
         console.log(`[wss] New connexion on ${wsServer.wss.options.path} (id: ${ws.uid})`);
         wsServer.clients = getClientsUID(wsServer.uid);
+        console.log(JSON.stringify({status:"success", code:"connected", data: {room: getPublicServerData(wsServer), uid: ws.uid}}));
         ws.send(JSON.stringify({status:"success", code:"connected", data: {room: getPublicServerData(wsServer), uid: ws.uid}}));
         wsServer.wss.broadcast(ws, {code:"player_join"});
         ws.on('message', message => {

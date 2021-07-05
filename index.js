@@ -12,6 +12,37 @@ const cors = require('cors');
 const util = require('./util');
 const url = require('url');
 require("./prototypes")();
+const readline = require('readline');
+
+var rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
+
+var waitForUserInput = function() {
+    rl.question("Command: ", function(answer) {
+        switch (answer) {
+            case "exit":
+                rl.close();
+                server.close();
+                console.log("Exit !");
+                break;
+            case "list":
+                if (wsServers.length > 0) {
+                    console.log("\n===========================================================\n");
+                    for (const wsServer of wsServers) {
+                        let data = getPublicServerData(wsServer);
+                        console.log(data);
+                        console.log("\n===========================================================\n");
+                    }
+                }else {
+                    console.log("Empty server list");
+                }
+                waitForUserInput();
+                break;
+        }
+    });
+}
 
 const privateKey = fs.readFileSync('./certs/privkey1.pem', 'utf8');
 const certificate = fs.readFileSync('./certs/cert1.pem', 'utf8');
@@ -74,18 +105,18 @@ app.post('/api/room', (req, res) => {
 
     if (game && version && name) {
         let wsServer = {uid: null, game: game, version: version, name: name, open: true, limit: limit, clients: [], data: data};
-        console.log("[wss] Creating new WebSocketServer ", wsServer);
+        console.log("[wss] Creating new WebSocketServer: " + JSON.stringify(wsServer));
         if (!findOneServerByCriteria({game: game, version: version, name: name})) {
             const uid = uuidv4();
             wsServer.uid = uid;
             const wss = new WebSocket.Server({ noServer: true, path: "/"+uid });
-            console.log("[wss] New WebSocketServer created: ", wss.options.path);
+            console.log("[wss] New WebSocketServer created: " + wss.options.path);
             wsServer.wss = wss;
             initWebSocketServer(wsServer);
             wsServers.push(wsServer);
             return res.status(200).json({status: "success", data: getPublicServerData(wsServer)});
         }else {
-            console.log("[wss] WebSocketServer already exists ", wsServer);
+            console.log("[wss] WebSocketServer already exists ", JSON.stringify(wsServer));
             return res.status(200).json({status: "error", code: "name_already_exists", message: `A server with this name for the game ${name} (${version}) already exists`});
         }
     }else {
@@ -97,8 +128,6 @@ app.post('/api/room', (req, res) => {
 app.post('/api/room/data/:uid', (req, res) => {
     const uid = req.params.uid;
     let body = req.body || null;
-
-    console.log(body);
 
     if (body && typeof body === "object") {
         let merge = body.merge;
@@ -145,6 +174,10 @@ app.get('/api/room', (req, res) => {
             return getPublicServerData(wsServer);
         });
     return res.status(200).json({status: "success", servers: servers});
+});
+
+app.get('/api/ping', (req, res) => {
+   return res.status(200).json("pong");
 });
 
 function closeWebsocketServer(uid, close) {
@@ -195,11 +228,10 @@ function initWebSocketServer(wsServer) {
         ws.uid = wsServer.wss.getUniqueID();
         console.log(`[wss] New connexion on ${wsServer.wss.options.path} (id: ${ws.uid})`);
         wsServer.clients = getClientsUID(wsServer.uid);
-        console.log(JSON.stringify({status:"success", code:"connected", data: {room: getPublicServerData(wsServer), uid: ws.uid}}));
         ws.send(JSON.stringify({status:"success", code:"connected", data: {room: getPublicServerData(wsServer), uid: ws.uid}}));
         wsServer.wss.broadcast(ws, {code:"player_join"});
         ws.on('message', message => {
-            console.log("[wss] New message on " + wsServer.wss.options.path + ": ", message);
+            console.log("[wss] New message on " + wsServer.wss.options.path + ": " + JSON.stringify(message));
             try{
                 var data = JSON.parse(message);
                 let cnt = wsServer.wss.broadcast(ws, {code: "broadcast", data: data});
@@ -257,6 +289,9 @@ server.listen(process.env.PORT, function listening() {
     if (process.env.NGROK === 'true') {
         ngrok.connect({proto: 'http', addr: process.env.PORT}).then(url => {
             console.log("🔌 Ngrok connected: " + url.replace("https://", ""));
+            waitForUserInput();
         });
+    }else {
+        waitForUserInput();
     }
 });

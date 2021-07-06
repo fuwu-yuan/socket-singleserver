@@ -20,7 +20,7 @@ module.exports = {
     production : {
       user : 'steve',
       host : 'olympe.stevecohen.fr',
-      ref  : 'origin/master',
+      ref  : 'origin/main',
       repo : 'git@github.com:fuwu-yuan/socket-singleserver.git',
       path : '/home/steve/projects/backs/socket-singleserver',
       'post-deploy' : 'npm install && pm2 reload ecosystem.config.js --env production'

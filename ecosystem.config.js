@@ -2,7 +2,7 @@ module.exports = {
   apps : [{
     name: 'BGEW-Server',
     script: 'index.js',
-    exec_interpreter: "~/.nvm/versions/node/v12.2.1/bin/node",
+    interpreter: "~/.nvm/versions/node/v12.2.1/bin/node",
 
     // Options reference: https://pm2.keymetrics.io/docs/usage/application-declaration/
     instances: 1,

@@ -26,7 +26,7 @@ module.exports = {
       ref  : 'origin/main',
       repo : 'git@github.com:fuwu-yuan/socket-singleserver.git',
       path : '/home/steve/projects/backs/socket-singleserver',
-      'post-deploy' : 'npm install && pm2 reload ecosystem.config.js --env production'
+      'post-deploy' : 'cp ../shared/.env .env && npm install && pm2 reload ecosystem.config.js --env production'
     }
   }
 };

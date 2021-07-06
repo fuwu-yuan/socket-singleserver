@@ -4,7 +4,7 @@ module.exports = {
     script: 'index.js',
     exec_interpreter: "node@12.22.1",
     interpreter: "node@12.22.1",
-    log_date_format: "DD-MM-YYY HH:mm:ss.SSS",
+    log_date_format: "YYYY-MM-DD HH:mm Z",
 
     // Options reference: https://pm2.keymetrics.io/docs/usage/application-declaration/
     instances: 1,

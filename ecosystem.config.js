@@ -3,7 +3,7 @@ module.exports = {
     name: 'BGEW-Server',
     script: 'index.js',
     exec_interpreter: "node@12.22.1",
-    interpreter: "node@12.22.1",
+    interpreter: "node@14.15.0",
     log_date_format: "YYYY-MM-DD HH:mm Z",
 
     // Options reference: https://pm2.keymetrics.io/docs/usage/application-declaration/

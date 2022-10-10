@@ -44,9 +44,12 @@ var waitForUserInput = function() {
     });
 }
 
-const privateKey = fs.readFileSync('./certs/privkey1.pem', 'utf8');
-const certificate = fs.readFileSync('./certs/cert1.pem', 'utf8');
-const ca = fs.readFileSync('./certs/chain1.pem', 'utf8');
+//const privateKey = fs.readFileSync('./certs/privkey1.pem', 'utf8');
+const privateKey = fs.readFileSync('/etc/letsencrypt/live/bgew.stevecohen.fr/privkey.pem', 'utf8');
+//const certificate = fs.readFileSync('./certs/cert1.pem', 'utf8');
+const certificate = fs.readFileSync('/etc/letsencrypt/live/bgew.stevecohen.fr/cert.pem', 'utf8');
+//const ca = fs.readFileSync('./certs/chain1.pem', 'utf8');
+const ca = fs.readFileSync('/etc/letsencrypt/live/bgew.stevecohen.fr/chain.pem', 'utf8');
 
 const {
     v4: uuidv4,

@@ -149,6 +149,9 @@ app.get('/api/room/data/:uid', (req, res) => {
     const uid = req.params.uid;
 
     let index = findOneServerByCriteria({"uid": uid}, true);
+    if (!wsServers[index]) {
+        return res.status(200).json({status: "error", code: "not_found", message: "No serveur found with uid " + uid});
+    }
     let data = wsServers[index].data;
     return res.status(200).json({status: "success", data: data});
 });

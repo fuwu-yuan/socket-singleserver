@@ -44,24 +44,11 @@ var waitForUserInput = function() {
     });
 }
 
-//const privateKey = fs.readFileSync('./certs/privkey1.pem', 'utf8');
-const privateKey = fs.readFileSync('/etc/letsencrypt/live/bgew.stevecohen.fr/privkey.pem', 'utf8');
-//const certificate = fs.readFileSync('./certs/cert1.pem', 'utf8');
-const certificate = fs.readFileSync('/etc/letsencrypt/live/bgew.stevecohen.fr/cert.pem', 'utf8');
-//const ca = fs.readFileSync('./certs/chain1.pem', 'utf8');
-const ca = fs.readFileSync('/etc/letsencrypt/live/bgew.stevecohen.fr/chain.pem', 'utf8');
-
 const {
     v4: uuidv4,
 } = require('uuid');
 
 const wsServers = [];
-
-const credentials = {
-    key: privateKey,
-    cert: certificate,
-    ca: ca
-};
 
 const app = express();
 
@@ -77,6 +64,14 @@ app.use(express.json());
 let server = null;
 if (process.env.SSL === 'true') {
     console.log("Creating server with SSL");
+    const privateKey = fs.readFileSync('/etc/letsencrypt/live/bgew.stevecohen.fr/privkey.pem', 'utf8');
+    const certificate = fs.readFileSync('/etc/letsencrypt/live/bgew.stevecohen.fr/cert.pem', 'utf8');
+    const ca = fs.readFileSync('/etc/letsencrypt/live/bgew.stevecohen.fr/chain.pem', 'utf8');
+    const credentials = {
+        key: privateKey,
+        cert: certificate,
+        ca: ca
+    };
     server = https.createServer(credentials, app);
 }else {
     console.log("Creating server without SSL");
@@ -234,7 +229,8 @@ function initWebSocketServer(wsServer) {
         ws.send(JSON.stringify({status:"success", code:"connected", data: {room: getPublicServerData(wsServer), uid: ws.uid}}));
         wsServer.wss.broadcast(ws, {code:"player_join"});
         ws.on('message', message => {
-            console.log("[wss] New message on " + wsServer.wss.options.path + ": " + JSON.stringify(message));
+            // (no per-message logging: this is the hot path — every game snapshot
+            //  passes through here ~10-15x/s and logging it floods the disk + I/O)
             try{
                 var data = JSON.parse(message);
                 let cnt = wsServer.wss.broadcast(ws, {code: "broadcast", data: data});
